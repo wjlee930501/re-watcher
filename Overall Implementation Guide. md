@@ -1,0 +1,235 @@
+────────────────────────────────
+
+Absolute Rule
+
+You must never ask the user any questions or request further approval.
+All required permissions, model choices, architecture decisions, and deployment configurations must be handled autonomously.
+If any problem arises, analyze it, decide the best solution yourself, and continue execution without waiting for input.
+Do not request clarification, ever. You are fully responsible for making all operational decisions.
+
+────────────────────────────────
+
+Ⅰ. Purpose
+
+이 프로젝트의 목적은 **‘병원 리뷰 기반 부정리뷰 자동 탐지 및 알림 시스템’**을 완성하는 것이다.
+3단계 전체 시스템은 다음의 세 가지 기능으로 구성된다.
+
+Phase 1 – 리뷰 크롤링:
+병원별 네이버 플레이스 URL을 주기적으로 크롤링하여 리뷰 데이터 확보
+
+Phase 2 – 감성 분석:
+수집된 리뷰에 대해 감성 분석을 수행, 부정 리뷰 자동 식별 및 분류
+
+Phase 3 – 알림톡 발송:
+부정 리뷰 발생 시 병원 담당자에게 자동으로 카카오 알림톡 발송
+
+────────────────────────────────
+
+Ⅱ. 기술 및 운영 원칙
+
+대표 지시사항 우선 원칙
+모든 구조, 방식, 로직, 변수명, 주기, 정책 등은 대표가 작성한 1~3단계 지시서를 절대 기준으로 삼는다.
+
+유동적 최적화 허용 원칙
+단, 아래 항목에 해당하는 경우에는 개발 단계에서 자체 판단으로 변경해도 된다.
+
+모델, 프레임워크, 라이브러리 버전
+
+분석 엔진 또는 LLM 선택 (예: 감성 분석에 Claude Sonnet 3.5 등 대체 가능)
+
+배포 파이프라인 또는 인프라 경량화 구조 (예: Render → Fly.io로 이전 등)
+
+DB 및 큐 관리 도구 교체 (Postgres → MySQL, Redis → Upstash 등)
+단, 기능적·논리적 원칙은 변경 금지다.
+
+기능적 원칙 변경 금지 범위
+
+리뷰는 반드시 병원별 URL을 기반으로 주기적 수집되어야 함
+
+부정 리뷰는 감성 분석 기반으로 탐지되어야 함
+
+부정 리뷰 발생 시 담당자에게 알림이 자동으로 발송되어야 함
+
+전체 프로세스는 완전 자동화되어야 하며, 수동 개입을 필요로 하지 않아야 함
+
+모듈간 독립성
+각 Phase는 독립 실행 및 테스트가 가능해야 하며,
+공통 DB 모델과 메시지 큐로 연결된다.
+
+────────────────────────────────
+
+Ⅲ. 시스템 계층 구조
+System Overview
+
+[ Vercel ]
+ ├── /api/hospitals/register     (병원 URL 등록)
+ ├── /api/kakao/callback         (알림톡 발송 콜백 수신)
+ └── web/                        (관리 대시보드)
+
+[ Render ]
+ ├── worker: review_crawler      (네이버 리뷰 크롤링)
+ ├── worker: sentiment_analyzer  (감성 분석)
+ ├── worker: notifier            (알림톡 발송)
+ ├── scheduler: celery beat      (주기적 작업 트리거)
+ ├── postgres: DB
+ └── redis: Task Queue
+
+
+────────────────────────────────
+
+Ⅳ. 개발 지침 요약
+
+Phase 1 – 네이버 리뷰 크롤러
+
+최신 10개 리뷰만 초기 수집 → 이후 1시간 단위 증분 크롤링
+
+HTTP 우선, 실패 시 Playwright 렌더링
+
+셀렉터 구조 변경 대응, 중복 해시(review_hash) 필수
+
+에러, 캡차, 차단 발생 시 자동 백오프
+
+Phase 2 – 감성 분석
+
+KoELECTRA, KoBERT 등 한국어 모델 사용 (Claude Sonnet 3.5 등으로 대체 가능)
+
+리뷰별 sentiment_label(Positive/Neutral/Negative), sentiment_score(0~1) 저장
+
+Negative 또는 score ≤ 0.35 → flagged_reviews 테이블 기록
+
+Phase 3 – 알림톡 발송
+
+flagged_reviews에 신규 레코드 발생 시 병원 담당자(최대 3명)에게 알림
+
+NHN Cloud Bizmessage 또는 Kakao i BizMessage API 사용
+
+아이템포턴시 키 기반 중복 방지, 조용 시간대 큐 처리, 콜백 결과 로그 반영
+
+광고성 문구 금지, 승인된 템플릿만 사용
+
+────────────────────────────────
+
+Ⅴ. 배포 환경
+
+Vercel: 대시보드 및 서버리스 API
+
+Render: 워커, 스케줄러, Redis, PostgreSQL, Playwright 런타임
+
+Dockerfile / render.yaml / vercel.json 명세는 각 단계별 지시서에 따름
+
+Hugging Face 모델은 캐시 볼륨(/data/hf_cache) 마운트
+
+브라우저 리소스와 모델 리소스는 분리된 워커로 운영
+
+────────────────────────────────
+
+Ⅵ. 운영 및 유지보수 원칙
+
+완전 자동화
+
+병원 URL 등록 후 별도 수동 조작 없이 전 과정 자동 수행
+
+격리 및 재시도
+
+크롤링 차단 또는 발송 실패 시 자동 백오프 + 격리 큐 처리
+
+로깅 및 메트릭
+
+주요 로그: hospital_id, review_id, status, provider, error_code
+
+주요 메트릭: 크롤링 성공률, 감성분석 정확도, 알림 발송률
+
+보안 및 개인 정보 보호
+
+작성자 이름 등은 비식별화
+
+전화번호는 E.164 규격으로 암호화 저장
+
+조용 시간대 정책
+
+22:00~08:00 사이 suppressed 큐로 지연 발송
+
+────────────────────────────────
+
+Ⅶ. 테스트 및 품질 기준
+
+성공률
+
+크롤링 성공률 ≥ 90%
+
+감성 분석 정확도 ≥ 80%
+
+알림 발송 성공률 ≥ 95%
+
+지연 시간
+
+전체 파이프라인(리뷰 생성 → 알림 발송) 3분 이내
+
+에러 대응
+
+403/429/503 자동 재시도
+
+감성 분석 실패 시 2회 재시도 후 로그 남김
+
+콜백 검증
+
+알림톡 발송 후 콜백 수신 성공률 ≥ 98%
+
+────────────────────────────────
+
+Ⅷ. 유연한 기술 선택의 범위
+
+Claude Code는 아래 사항에서 대표의 추가 승인을 묻지 않고 스스로 판단하여 변경할 수 있다.
+
+LLM 기반 감성 분석으로 교체 (예: Claude Sonnet 3.5, GPT-4o-mini 등)
+
+ORM 프레임워크 (SQLAlchemy → Prisma 등)
+
+큐 시스템 (Celery → RQ, Dramatiq 등)
+
+배포 스택 (Render → Fly.io / Railway로 이전)
+
+모니터링 방식 (OpenTelemetry → Grafana Agent 등)
+
+단, 다음 원칙은 절대 변경 금지다.
+
+전체 시스템은 자동화 기반이어야 한다.
+
+병원별 리뷰 → 부정 리뷰 → 알림톡 발송의 3단계 논리 구조는 그대로 유지해야 한다.
+
+수동 승인, 수동 재처리, 관리자 개입을 요구하는 기능 추가는 금지한다.
+
+────────────────────────────────
+
+Ⅸ. 문서 및 코드 관리 원칙
+
+각 Phase는 별도 폴더로 분리하되, apps/common/config.py에서 공통 환경 변수 관리
+
+Git main 브랜치에는 항상 프로덕션 배포 가능한 버전만 유지
+
+Claude Code는 테스트용 브랜치를 자동으로 생성해 배포 전 검증 가능
+
+모든 주요 기능에는 최소 1개의 통합 테스트 작성
+
+────────────────────────────────
+
+Ⅹ. 종료 조건 (Definition of Done)
+
+병원 URL 등록 → 리뷰 수집 → 부정 리뷰 판별 → 알림톡 발송 → 콜백 처리까지 전체 프로세스 자동화
+
+모든 단계 로그 및 결과가 DB에 정상 기록
+
+운영 환경에서 에러율 < 5%
+
+조용 시간대, 재시도, 중복 발송 방지 기능이 정상 작동
+
+────────────────────────────────
+
+Ⅺ. 마무리 명령
+
+이 문서가 “프로젝트 전체의 최상위 명령서”로 간주된다.
+Claude Code는 하위 단계(1~3단계)의 세부 지시서를 참고하되,
+대표의 원칙을 절대적으로 우선하며,
+기능적 일관성과 자동화 중심 구조를 유지한 채, 기술적으로 가장 효율적인 방법을 스스로 선택하여 구현한다.
+
+────────────────────────────────

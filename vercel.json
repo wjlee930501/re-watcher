@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/**/*.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/hospitals/register",
+      "dest": "/api/hospitals/register.py"
+    },
+    {
+      "src": "/api/kakao/callback",
+      "dest": "/api/kakao/callback.py"
+    }
+  ],
+  "env": {
+    "REV_DB_URL": "@rev-db-url",
+    "REV_REDIS_URL": "@rev-redis-url",
+    "REV_INTERNAL_API_TOKEN": "@rev-internal-api-token",
+    "VERCEL_ALLOWED_ORIGINS": "@vercel-allowed-origins",
+    "REV_CALLBACK_VERIFY_TOKEN": "@rev-callback-verify-token"
+  }
+}

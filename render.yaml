@@ -1,0 +1,89 @@
+services:
+  # Celery Worker - Main crawler and processor (optimized for cost)
+  - type: worker
+    name: revmon-worker
+    env: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    startCommand: celery -A apps.scheduler.main worker --loglevel=INFO --concurrency=2 --max-tasks-per-child=100
+    envVars:
+      - key: REV_DB_URL
+        fromDatabase:
+          name: revmon-postgres
+          property: connectionString
+      - key: REV_REDIS_URL
+        fromService:
+          name: revmon-redis
+          type: redis
+      - key: REV_PLAYWRIGHT_HEADLESS
+        value: "true"
+      - key: REV_CRAWL_CONCURRENCY_DEFAULT
+        value: "2"
+      - key: REV_REQUEST_TIMEOUT_MS
+        value: "15000"
+      - key: REV_BACKOFF_BASE_MS
+        value: "500"
+      - key: REV_MAX_RETRY
+        value: "3"
+      - key: REV_QUARANTINE_COOLDOWN_HOURS
+        value: "6"
+      - key: REV_SNAPSHOT_ENABLED
+        value: "false"
+      - key: REV_DB_POOL_SIZE
+        value: "5"
+      - key: REV_DB_MAX_OVERFLOW
+        value: "10"
+      - key: REV_SENTIMENT_BATCH_SIZE
+        value: "16"
+      - key: REV_LOG_LEVEL
+        value: "INFO"
+      - key: REV_USER_AGENT_POOL
+        value: '["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"]'
+      - key: TRANSFORMERS_CACHE
+        value: "/data/hf_cache"
+      - key: REV_ALIM_PROVIDER
+        sync: false
+      - key: REV_ALIM_APPKEY
+        sync: false
+      - key: REV_ALIM_SECRET
+        sync: false
+      - key: REV_ALIM_SENDER_KEY
+        sync: false
+      - key: REV_ALIM_TEMPLATE_CODE
+        value: "RV_NEG_REVIEW_ALERT_01"
+      - key: REV_QUIET_HOURS_START
+        value: "22:00"
+      - key: REV_QUIET_HOURS_END
+        value: "08:00"
+    disk:
+      name: hf-cache
+      mountPath: /data/hf_cache
+      sizeGB: 5
+
+  # Celery Beat - Scheduler
+  - type: worker
+    name: revmon-scheduler
+    env: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    startCommand: celery -A apps.scheduler.main beat --loglevel=INFO
+    envVars:
+      - key: REV_DB_URL
+        fromDatabase:
+          name: revmon-postgres
+          property: connectionString
+      - key: REV_REDIS_URL
+        fromService:
+          name: revmon-redis
+          type: redis
+
+databases:
+  - name: revmon-postgres
+    plan: starter
+    databaseName: revmon
+    user: revmon
+
+  - type: redis
+    name: revmon-redis
+    plan: starter
+    maxmemoryPolicy: allkeys-lru
